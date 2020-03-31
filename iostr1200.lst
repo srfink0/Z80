@@ -1,0 +1,276 @@
+                00001 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                00002 ; Read a character string from the terminal at 1200 baud, no parity, and 1 start and 1 stop bit  ;
+                00003 ; The string is terminated with the Enter key                                                    ;
+                00004 ; The total delay between bits sent to the terminal should be 830 us (.83 ms)1/1200 = .83        ;
+                00005 ; The Z80 clock will be 2Mhz                                                                     ;  
+                00006 ; Note: the terminal will send bits from the keyboard, starting with the LSB                     ;
+                00007 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;     
+                00008         ORG     0000H
+                00009 
+    = 0000      00010 SWITCH_PORT EQU 0
+    = 0001      00011 LED_PORT EQU 1
+    = 0002      00012 TERMINAL_INPUT_PORT EQU 2
+    = 0003      00013 TERMINAL_OUT_PORT EQU 3
+    = 0039      00014 HALF_DELAY_COUNT EQU 57
+    = 0071      00015 DELAY_COUNT1 EQU 113
+    = 00EE      00016 DELAY_COUNT2 EQU 238
+    = 0075      00017 DELAY_COUNT3 EQU 117
+    = 0074      00018 DELAY_COUNT4 EQU 116
+    = 0077      00019 DELAY_COUNT5 EQU 119
+    = 0018      00020 TITLE_LENGTH EQU EndTitle - title
+    = 0008      00021 WELCOME_LENGTH EQU EndGreeting - greeting
+    = 0025      00022 PROMPT_LENGTH   EQU     Endprompt - prompt
+    = 000F      00023 EOL_LENGTH      EQU     EndOfLine - EOL
+    = 000E      00024 MESSAGE_LENGTH EQU EndMessage - message
+    = 0014      00025 EXIT_MESSAGE_LENGTH EQU EndExitMessage - exitMessage
+                00026 Start:
+0000  210201    00027         LD      HL,title
+0003  0618      00028         LD      B,TITLE_LENGTH
+0005  CDCE00    00029         CALL WriteString
+                00030 ShowPrompt:
+0008  3E00      00031         LD      A,0
+000A  D301      00032         OUT     (LED_PORT),A    ;Clear the leds 
+000C  212201    00033         LD      HL,prompt
+000F  0625      00034         LD      B,PROMPT_LENGTH
+0011  CDCE00    00035         CALL WriteString
+                00036 ;Clear the input buffer
+0014  210080    00037         LD      HL,str
+0017  0650      00038         LD      B,80
+                00039 Clear:
+0019  360A      00040         LD      (HL),10
+001B  23        00041         INC     HL
+001C  10FB      00042         DJNZ Clear
+                00043 ;
+001E  210080    00044         LD      HL,str
+0021  1600      00045         LD      D,0
+0023  CD7C00    00046         CALL ReadChar
+                00047 ;
+0026  210080    00048         LD      HL,str
+0029  0600      00049         LD      B,0
+                00050 Search:
+002B  7E        00051         LD      A,(HL)
+002C  F620      00052         OR      20H             ;To uppercase
+002E  FE78      00053         CP      'x'     ;Exit program if user enters X or x
+0030  200D      00054         JR      NZ,Continue
+0032  3E00      00055         LD      A,0
+0034  D301      00056         OUT     (LED_PORT),A    ;Clear the leds
+0036  216401    00057         LD      HL,exitMessage
+0039  0614      00058         LD      B,EXIT_MESSAGE_LENGTH
+003B  CDCE00    00059         CALL WriteString        
+003E  76        00060         HALT
+                00061 Continue:       
+003F  3E0D      00062         LD      A,13    ;Look for <Enter>
+0041  BE        00063         CP      (HL)
+0042  2804      00064         JR      Z,found
+0044  23        00065         INC     HL
+0045  04        00066         INC     B
+0046  18E3      00067         JR      Search
+                00068 found:
+0048  DB00      00069         IN      A,(SWITCH_PORT)
+004A  FE01      00070         CP      1
+004C  280B      00071         JR      Z,DisplayName
+004E  215601    00072         LD      HL,message
+0051  060E      00073         LD      B,MESSAGE_LENGTH
+0053  CDCE00    00074         CALL WriteString
+0056  C36100    00075         JP      Wait
+                00076 DisplayName:
+0059  04        00077         INC     B
+005A  04        00078         INC     B
+005B  210080    00079         LD      HL,str
+005E  CDCE00    00080         CALL WriteString
+                00081 Wait:   
+0061  060F      00082         LD      B,EOL_LENGTH
+0063  214701    00083         LD      HL,EOL
+0066  CDCE00    00084         CALL WriteString
+                00085 ;       
+0069  018813    00086         LD  BC,5000     
+006C  CDBE00    00087         CALL Delay
+                00088         
+006F  3E55      00089         LD      A,55H
+0071  D301      00090         OUT     (LED_PORT),A    ;Clear the leds
+0073  01F82A    00091         LD  BC,11000    
+0076  CDBE00    00092         CALL Delay
+0079  C30800    00093         JP      ShowPrompt
+                00094                         
+                00095 ReadChar:
+007C  0608      00096         LD      B,8             ;Initialize the bit counter
+007E  1600      00097         LD      D,0             ;Initialize the RESULT
+                00098 ; Look for the Start bit (0)
+                00099 Loops:
+0080  DB02      00100         IN      A,(TERMINAL_INPUT_PORT)
+0082  CB7F      00101         BIT     7,A     ;Test D7
+0084  C28000    00102         JP      NZ,Loops        ;Received a start bit? No, loop
+0087  0E08      00103         LD      C,8
+                00104 InitLoop:
+0089  0D        00105         DEC     C
+008A  C28900    00106         JP      NZ,InitLoop
+                00107 ; 
+                00108 ; ; Wait 1/2 bit time
+                00109         ; LD    C,HALF_DELAY_COUNT
+                00110 ; Delay1:
+                00111         ; DEC   C
+                00112         ; JP    NZ,Delay1       
+                00113 ; ; Verify the Start bit        
+                00114         ; IN    A,(INPUT_PORT)
+                00115         ; BIT   7,A     ;Test D7
+                00116         ; JP    NZ,Loops        ;Still low? No, start over
+                00117 ;Prepare to read the character
+                00118 
+                00119 Top:
+008D  CB3A      00120         SRL     D       ;Shift bit of result
+008F  0E71      00121         LD      C,DELAY_COUNT1
+                00122 Delay2:
+0091  0D        00123         DEC     C
+0092  C29100    00124         JP      NZ,Delay2
+0095  DB02      00125         IN      A,(TERMINAL_INPUT_PORT)
+0097  CB7F      00126         BIT     7,A     ;Test D7
+0099  CAA100    00127         JP      Z,Reset
+009C  CBFA      00128         SET     7,D     ;Set bit in result
+009E  C3A600    00129         JP      Bot
+                00130 Reset:
+00A1  CBBA      00131         RES     7,D     ;Too keep the time of the loop the same in either case
+00A3  C3A600    00132         JP      Bot     ;Dummy inst
+                00133 Bot:    
+00A6  05        00134         DEC     B       ;Decrement bit counter
+00A7  C28D00    00135         JP      NZ,Top ;Go process the next char bit
+00AA  72        00136         LD      (HL),D  ;Store the current read char
+00AB  7A        00137         LD      A,D             ;Get last char read
+00AC  FE0D      00138         CP      A,13    ;Enter (CR) pressed?
+00AE  C2B200    00139         JP      NZ,NotCR        ;No, continue
+00B1  C9        00140         RET                     ;Yes, we are done reading the string
+                00141 NotCR:
+00B2  D301      00142         OUT     (LED_PORT),A
+00B4  23        00143         INC     HL
+                00144 ; Wait for 2 stop bits
+00B5  0EEE      00145         LD      C,DELAY_COUNT2
+                00146 Delay3:
+00B7  0D        00147         DEC     C
+00B8  C2B700    00148         JP      NZ,Delay3
+00BB  C37C00    00149         JP      ReadChar
+                00150 ;       
+                00151 DELAY:
+00BE  C5        00152         PUSH    BC
+00BF  010A00    00153         LD              BC,10   
+                00154 DELAY_LOOP:     
+00C2  0B        00155     DEC     BC
+00C3  78        00156     LD      A,B                                 
+00C4  B1        00157     OR      C
+00C5  20FB      00158     JR      NZ,DELAY_LOOP
+00C7  C1        00159         POP             BC
+00C8  0B        00160         DEC             BC
+00C9  78        00161         LD      A,B                             
+00CA  B1        00162     OR      C
+00CB  20F1      00163     JR      NZ,DELAY
+00CD  C9        00164         RET
+                00165         
+                00166 WriteString:
+                00167 ;
+                00168 NextChar:
+00CE  5E        00169         LD      E,(HL)
+00CF  C5        00170         PUSH BC
+00D0  E5        00171         PUSH HL
+00D1  CDDA00    00172         CALL WriteChar
+00D4  E1        00173         POP  HL
+00D5  C1        00174         POP      BC
+00D6  23        00175         INC     HL
+00D7  10F5      00176         DJNZ NextChar
+00D9  C9        00177         RET
+                00178 ;
+                00179 ; Subroutine to display one character on the terminal screen
+                00180 ;       
+                00181 WriteChar:
+                00182 ;
+                00183 ;       Start with high values on the RX pin
+                00184 ;
+00DA  1601      00185         LD      D,1
+00DC  0664      00186         LD      B,100
+                00187 Loop:
+00DE  3E01      00188         LD      A,1
+00E0  D303      00189         OUT     (TERMINAL_OUT_PORT),A
+00E2  10FA      00190         DJNZ Loop
+                00191 ;
+                00192 ; Send a start bit (0)  
+                00193 ;
+00E4  3E00      00194         LD      A,0
+00E6  0675      00195         LD      B,DELAY_COUNT3
+00E8  D303      00196         OUT     (TERMINAL_OUT_PORT),A   
+                00197 StartLoop:
+00EA  05        00198         DEC     B
+00EB  C2EA00    00199         JP      NZ,StartLoop
+                00200 ;       
+                00201 ;       Send a char, one bit at a time with the .83 delay between bits
+                00202 ;
+00EE  7B        00203         LD      A,E             ;Get Char to display
+00EF  2609      00204         LD      H,9
+00F1  25        00205         DEC     H
+                00206 ;
+                00207 ; The Main Loop will take .83 milliseconds      
+                00208 MainLoop:       
+00F2  D303      00209         OUT     (TERMINAL_OUT_PORT),A
+00F4  0F        00210         RRCA            ;4 t states, GET NEXT BIT OF CHARACTER
+00F5  0674      00211         LD      B,DELAY_COUNT4  
+                00212 DelayLoop:
+00F7  05        00213         DEC     B
+00F8  C2F700    00214         JP      NZ,DelayLoop    ;Wait 
+00FB  25        00215         DEC     H
+00FC  C2F200    00216         JP      NZ,MainLoop
+                00217 ;
+                00218 ; Send a stop bit
+                00219 ;
+00FF  ED51      00220         OUT     (C),D   
+0101  C9        00221         RET
+                00222 ;
+0102  54686520  00223 title db 'The venerable Z80 Demo',13,10
+      76 65 6E 65 72 61 62 6C
+      65 20 5A 38 30 20 44 65
+      6D 6F 0D 0A            
+                00224 EndTitle equ $
+011A  57656C63  00225 greeting db 'Welcome '
+      6F 6D 65 20            
+                00226 EndGreeting equ $
+0122  506C6561  00227 Prompt  db      'Please enter your name or X to exit: '
+      73 65 20 65 6E 74 65 72
+      20 79 6F 75 72 20 6E 61
+      6D 65 20 6F 72 20 58 20
+      74 6F 20 65 78 69 74 3A
+      20                     
+                00228 EndPrompt equ $
+0147  0D0A456E  00229 EOL     db      13,10,'End of Line',13,10
+      64 20 6F 66 20 4C 69 6E
+      65 0D 0A               
+                00230 EndOfLine equ $
+0156  556E6B6E  00231 message db 'Unknown Name',13,10
+      6F 77 6E 20 4E 61 6D 65
+      0D 0A                  
+                00232 EndMessage equ $
+0164  0D0A4861  00233 ExitMessage db 13,10,'Have a nice Day!',13,10
+      76 65 20 61 20 6E 69 63
+      65 20 44 61 79 21 0D 0A
+                00234 EndExitMessage equ $
+                00235 ; RAM AREA (A15 is high)
+                00236         ORG     8000H
+                00237 ;SwitchSetting ds 1     
+8000            00238 str DS  80
+                00239                 
+                00240         END     Start
+
+
+BOT             00A6  CLEAR           0019  CONTINUE        003F  
+DELAY           00BE  DELAY2          0091  DELAY3          00B7  
+DELAYLOOP       00F7  DELAY_COUNT1    0071  DELAY_COUNT2    00EE  
+DELAY_COUNT3    0075  DELAY_COUNT4    0074  DELAY_COUNT5    0077  
+DELAY_LOOP      00C2  DISPLAYNAME     0059  ENDEXITMESSAGE  0178  
+ENDGREETING     0122  ENDMESSAGE      0164  ENDOFLINE       0156  
+ENDPROMPT       0147  ENDTITLE        011A  EOL             0147  
+EOL_LENGTH      000F  EXITMESSAGE     0164  EXIT_MESSAGE_LE 0014  
+FOUND           0048  GREETING        011A  HALF_DELAY_COUN 0039  
+INITLOOP        0089  LED_PORT        0001  LOOP            00DE  
+LOOPS           0080  MAINLOOP        00F2  MESSAGE         0156  
+MESSAGE_LENGTH  000E  NEXTCHAR        00CE  NOTCR           00B2  
+PROMPT          0122  PROMPT_LENGTH   0025  READCHAR        007C  
+RESET           00A1  SEARCH          002B  SHOWPROMPT      0008  
+START           0000  STARTLOOP       00EA  STR             8000  
+SWITCH_PORT     0000  TERMINAL_INPUT_ 0002  TERMINAL_OUT_PO 0003  
+TITLE           0102  TITLE_LENGTH    0018  TOP             008D  
+WAIT            0061  WELCOME_LENGTH  0008  WRITECHAR       00DA  
+WRITESTRING     00CE  
